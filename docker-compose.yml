@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: quant_indicators_postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-quant}
+      POSTGRES_USER: ${POSTGRES_USER:-quant}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quant_dev_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - quant_indicators_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-quant}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  quant_indicators:
+    image: quant_indicators:latest
+    build: .
+    container_name: quant_indicators
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://quant:quant_dev_password@postgres:5432/quant}
+      BARS_SCHEMA: ${BARS_SCHEMA:-market_data}
+      BARS_TABLE: ${BARS_TABLE:-daily_bars}
+      INDICATOR_ADJUSTMENT_TYPE: ${INDICATOR_ADJUSTMENT_TYPE:-unadjusted}
+      INDICATOR_LOOKBACK_DAYS: ${INDICATOR_LOOKBACK_DAYS:-400}
+      COMPUTE_INTERVAL: ${COMPUTE_INTERVAL:-86400}
+    ports:
+      - "8000:8000"
+    stdin_open: true
+    tty: true
+
+volumes:
+  quant_indicators_pgdata:
