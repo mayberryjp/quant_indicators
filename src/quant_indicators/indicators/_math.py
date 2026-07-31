@@ -67,3 +67,56 @@ def rolling_std(values: Sequence[float], period: int) -> list[float | None]:
         var = sum((v - mean) ** 2 for v in window) / period
         out[i] = sqrt(var)
     return out
+
+
+def wma(values: Sequence[float], period: int) -> list[float | None]:
+    """Linearly weighted moving average (most recent bar has the highest weight)."""
+    n = len(values)
+    out: list[float | None] = [None] * n
+    if period <= 0 or n < period:
+        return out
+    denom = period * (period + 1) / 2.0
+    for i in range(period - 1, n):
+        window = values[i - period + 1 : i + 1]
+        weighted = sum((k + 1) * window[k] for k in range(period))
+        out[i] = weighted / denom
+    return out
+
+
+def highest(values: Sequence[float], period: int) -> list[float | None]:
+    """Rolling maximum over the given period."""
+    n = len(values)
+    out: list[float | None] = [None] * n
+    if period <= 0 or n < period:
+        return out
+    for i in range(period - 1, n):
+        out[i] = max(values[i - period + 1 : i + 1])
+    return out
+
+
+def lowest(values: Sequence[float], period: int) -> list[float | None]:
+    """Rolling minimum over the given period."""
+    n = len(values)
+    out: list[float | None] = [None] * n
+    if period <= 0 or n < period:
+        return out
+    for i in range(period - 1, n):
+        out[i] = min(values[i - period + 1 : i + 1])
+    return out
+
+
+def ema_of(series: Sequence[float | None], period: int) -> list[float | None]:
+    """EMA of a series that may start with a contiguous run of ``None``.
+
+    Useful for chaining EMAs (DEMA/TEMA/TRIX/PPO signal) where the input is
+    itself an indicator output with leading ``None`` padding.
+    """
+    out: list[float | None] = [None] * len(series)
+    defined = [(i, v) for i, v in enumerate(series) if v is not None]
+    if len(defined) < period:
+        return out
+    values = [v for _, v in defined]
+    smoothed = ema(values, period)
+    for k, (i, _) in enumerate(defined):
+        out[i] = smoothed[k]
+    return out

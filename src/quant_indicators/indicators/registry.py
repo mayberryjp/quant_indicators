@@ -62,7 +62,15 @@ def _ensure_loaded() -> None:
         return
     _LOADED = True
     # Importing these modules populates the registry as a side effect.
-    from quant_indicators.indicators import core, levels, trend  # noqa: F401
+    from quant_indicators.indicators import (  # noqa: F401
+        averages,
+        core,
+        levels,
+        momentum,
+        trend,
+        volatility,
+        volume,
+    )
 
 
 def _reset_for_tests() -> None:

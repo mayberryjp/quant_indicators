@@ -59,6 +59,24 @@ class SupportResistance20(_SupportResistance):
 
 
 @register
+class SupportResistance50(_SupportResistance):
+    window = 50
+    code = "support_resistance_50"
+    display_name = "Support/Resistance (50)"
+    min_periods = 50
+    description = "Rolling 50-day low/high support and resistance levels."
+
+
+@register
+class SupportResistance100(_SupportResistance):
+    window = 100
+    code = "support_resistance_100"
+    display_name = "Support/Resistance (100)"
+    min_periods = 100
+    description = "Rolling 100-day low/high support and resistance levels."
+
+
+@register
 class SupportResistance252(_SupportResistance):
     window = 252
     code = "support_resistance_252"
@@ -151,3 +169,73 @@ class VolumeShelf(Indicator):
                 low_idx -= 1
                 covered += max(below, 0.0)
         return low_idx, high_idx
+
+
+# ── Pivot Points ─────────────────────────────────────────────────────────────
+
+@register
+class PivotPoints(Indicator):
+    code = "pivot_points"
+    display_name = "Pivot Points (Classic)"
+    version = "1"
+    input_series = "hlc"
+    outputs = ["pivot", "r1", "r2", "r3", "s1", "s2", "s3"]
+    min_periods = 2
+    description = "Classic floor-trader pivot, resistance and support levels from the prior bar."
+
+    def compute(self, bars: Sequence[Bar]) -> list[IndicatorPoint]:
+        points: list[IndicatorPoint] = []
+        for i in range(1, len(bars)):
+            prev = bars[i - 1]
+            high, low, close = prev.high, prev.low, prev.close
+            pivot = (high + low + close) / 3.0
+            rng = high - low
+            points.append(
+                IndicatorPoint(
+                    bar_date=bars[i].bar_date,
+                    values={
+                        "pivot": pivot,
+                        "r1": 2.0 * pivot - low,
+                        "r2": pivot + rng,
+                        "r3": high + 2.0 * (pivot - low),
+                        "s1": 2.0 * pivot - high,
+                        "s2": pivot - rng,
+                        "s3": low - 2.0 * (high - pivot),
+                    },
+                )
+            )
+        return points
+
+
+@register
+class FibonacciPivots(Indicator):
+    code = "pivot_fib"
+    display_name = "Pivot Points (Fibonacci)"
+    version = "1"
+    input_series = "hlc"
+    outputs = ["pivot", "r1", "r2", "r3", "s1", "s2", "s3"]
+    min_periods = 2
+    description = "Fibonacci pivot levels (0.382/0.618/1.0 of range) from the prior bar."
+
+    def compute(self, bars: Sequence[Bar]) -> list[IndicatorPoint]:
+        points: list[IndicatorPoint] = []
+        for i in range(1, len(bars)):
+            prev = bars[i - 1]
+            high, low, close = prev.high, prev.low, prev.close
+            pivot = (high + low + close) / 3.0
+            rng = high - low
+            points.append(
+                IndicatorPoint(
+                    bar_date=bars[i].bar_date,
+                    values={
+                        "pivot": pivot,
+                        "r1": pivot + 0.382 * rng,
+                        "r2": pivot + 0.618 * rng,
+                        "r3": pivot + 1.0 * rng,
+                        "s1": pivot - 0.382 * rng,
+                        "s2": pivot - 0.618 * rng,
+                        "s3": pivot - 1.0 * rng,
+                    },
+                )
+            )
+        return points

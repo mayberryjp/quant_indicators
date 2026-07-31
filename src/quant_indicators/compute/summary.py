@@ -14,6 +14,7 @@ class ComputeSummary:
     symbols_requested: int = 0
     symbols_succeeded: int = 0
     symbols_failed: int = 0
+    symbols_skipped: int = 0
     indicators_run: int = 0
     values_upserted: int = 0
     errors: int = 0
@@ -30,6 +31,7 @@ class ComputeSummary:
             f"symbols_requested={self.symbols_requested}",
             f"symbols_succeeded={self.symbols_succeeded}",
             f"symbols_failed={self.symbols_failed}",
+            f"symbols_skipped={self.symbols_skipped}",
             f"indicators_run={self.indicators_run}",
             f"values_upserted={self.values_upserted}",
             f"errors={self.errors}",

@@ -6,11 +6,10 @@ import argparse
 import logging
 import os
 import time
-from datetime import date, timedelta
 from pathlib import Path
 
 
-EXPECTED_SCHEMA_VERSION = "0001_indicators_schema"
+EXPECTED_SCHEMA_VERSION = "0002_current_values_only"
 EXPECTED_TABLES = (
     "indicator_definitions",
     "indicator_runs",
@@ -110,12 +109,6 @@ def db_verify(_args: argparse.Namespace) -> None:
 
 # ── indicators commands ─────────────────────────────────────────────────────
 
-def _parse_date(value: str) -> date:
-    try:
-        return date.fromisoformat(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(f"invalid date: {value} (use YYYY-MM-DD)") from exc
-
 
 def indicators_list(_args: argparse.Namespace) -> None:
     from quant_indicators.indicators.registry import all_indicators
@@ -154,56 +147,44 @@ def indicators_compute(args: argparse.Namespace) -> None:
     codes = _selected_codes(args)
     log = logging.getLogger(__name__)
 
-    if run_once and args.from_date is None and not args.fixture:
-        raise SystemExit(
-            "error: --from-date is required for one-shot compute "
-            "(or use --schedule for daily auto-compute)"
-        )
+    tickers = [t.strip() for t in args.tickers.split(",")] if args.tickers else None
 
     while True:
-        if args.from_date is not None:
-            from_date = args.from_date
-        elif args.fixture:
-            from_date = None
-        else:
-            # Scheduled mode recomputes the most recent trading day each cycle.
-            from_date = date.today() - timedelta(days=1)
-        to_date = args.to_date or from_date
-
-        options = ComputeOptions(
-            from_date=from_date,
-            to_date=to_date,
-            tickers=[t.strip() for t in args.tickers.split(",")] if args.tickers else None,
-            adjustment_type=args.adjustment_type,
-            indicator_codes=codes,
-            mode="incremental" if interval and args.from_date is None else args.mode,
-            lookback_days=args.lookback_days,
-            fixture_path=args.fixture,
-            dry_run=args.dry_run,
-        )
-
-        log.info(
-            "computing indicators  from=%s  to=%s  mode=%s  adjustment=%s",
-            from_date, to_date, options.mode, options.adjustment_type,
-        )
-
         engine = None if (args.dry_run and args.fixture) else _engine()
-        job = IndicatorComputeJob(engine=engine)
         try:
-            summary = job.run(options)
-            print(summary.format_line())
-            for w in summary.warnings:
-                print(f"  WARNING: {w}")
-            for f in summary.failures[:10]:
-                print(f"  FAILURE: {f}")
-            if summary.status == "failed" and run_once:
-                raise SystemExit(1)
-        except SystemExit:
-            raise
-        except Exception as exc:  # noqa: BLE001
-            print(f"ERROR: {exc}")
-            if run_once:
-                raise SystemExit(1) from exc
+            options = ComputeOptions(
+                tickers=tickers,
+                adjustment_type=args.adjustment_type,
+                indicator_codes=codes,
+                lookback_days=args.lookback_days,
+                fixture_path=args.fixture,
+                dry_run=args.dry_run,
+            )
+
+            log.info(
+                "computing current indicator values  adjustment=%s  lookback=%dd",
+                options.adjustment_type, options.lookback_days,
+            )
+
+            job = IndicatorComputeJob(engine=engine)
+            try:
+                summary = job.run(options)
+                print(summary.format_line())
+                for w in summary.warnings:
+                    print(f"  WARNING: {w}")
+                for f in summary.failures[:10]:
+                    print(f"  FAILURE: {f}")
+                if summary.status == "failed" and run_once:
+                    raise SystemExit(1)
+            except SystemExit:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                print(f"ERROR: {exc}")
+                if run_once:
+                    raise SystemExit(1) from exc
+        finally:
+            if engine is not None:
+                engine.dispose()
 
         if run_once:
             break
@@ -267,20 +248,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sync_parser.set_defaults(func=indicators_sync_definitions)
 
-    compute_parser = ind_subparsers.add_parser("compute", help="Compute and store indicators.")
-    compute_parser.add_argument(
-        "--from-date", type=_parse_date, default=None,
-        help="Start date (YYYY-MM-DD). Required for one-shot; defaults to yesterday when scheduled.",
-    )
-    compute_parser.add_argument(
-        "--to-date", type=_parse_date, default=None,
-        help="End date (YYYY-MM-DD, default: same as from-date).",
+    compute_parser = ind_subparsers.add_parser(
+        "compute", help="Compute and store the current value of each indicator per ticker."
     )
     compute_parser.add_argument("--tickers", type=str, default=None, help="Comma-separated tickers (default: all with bars).")
     compute_parser.add_argument("--indicators", type=str, default=None, help="Comma-separated indicator codes (default: all registered).")
     compute_parser.add_argument("--adjustment-type", choices=("unadjusted", "split_adjusted"), default=_adjustment_type_default())
-    compute_parser.add_argument("--mode", choices=("backfill", "incremental"), default="backfill")
-    compute_parser.add_argument("--lookback-days", type=int, default=_lookback_default(), help="Extra history loaded before from-date for indicator warm-up.")
+    compute_parser.add_argument("--lookback-days", type=int, default=_lookback_default(), help="Recent history (calendar days) loaded per symbol to warm up indicators.")
     compute_parser.add_argument("--fixture", help="Path to a bars fixture file or directory.")
     compute_parser.add_argument("--dry-run", action="store_true", help="Compute without database writes (fixture mode).")
     compute_parser.add_argument("--schedule", type=int, metavar="SECONDS", help="Run continuously, sleeping SECONDS between compute cycles.")

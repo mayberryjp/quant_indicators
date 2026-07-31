@@ -33,23 +33,14 @@ def test_compute_fixture_respects_indicator_selection():
     assert summary.values_upserted > 0
 
 
-def test_compute_fixture_date_window_limits_rows():
+def test_compute_fixture_stores_one_value_per_indicator():
     job = IndicatorComputeJob(engine=None)
-    full = job.run(ComputeOptions(fixture_path=str(FIXTURE_DIR), dry_run=True))
+    summary = job.run(ComputeOptions(fixture_path=str(FIXTURE_DIR), dry_run=True))
 
-    # Restricting to a single far-future date should yield zero rows.
-    from datetime import date
-
-    windowed = job.run(
-        ComputeOptions(
-            fixture_path=str(FIXTURE_DIR),
-            dry_run=True,
-            from_date=date(2999, 1, 1),
-            to_date=date(2999, 12, 31),
-        )
-    )
-    assert windowed.values_upserted == 0
-    assert full.values_upserted > windowed.values_upserted
+    # Current-value model: exactly one row per (symbol, indicator) that produced
+    # output. The fixture has enough history for every indicator to emit.
+    assert summary.symbols_requested >= 1
+    assert summary.values_upserted == summary.indicators_run * summary.symbols_requested
 
 
 def test_summary_format_line():

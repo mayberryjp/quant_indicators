@@ -144,3 +144,92 @@ def test_volume_shelf_value_area_within_range():
     v = points[-1].values
     assert v["value_area_low"] <= v["poc"] <= v["value_area_high"]
     assert v["total_volume"] > 0
+
+
+# ── Coverage across the full registry ────────────────────────────────────────
+
+def _synthetic_ohlcv(n: int = 320) -> list[Bar]:
+    """A varied, non-degenerate OHLCV series long enough for every indicator."""
+    from math import sin
+
+    start = date(2023, 1, 1)
+    bars: list[Bar] = []
+    price = 100.0
+    for i in range(n):
+        # Deterministic wandering price with an intraday range.
+        price += sin(i / 5.0) * 1.5 + ((i * 7) % 11 - 5) * 0.3
+        price = max(price, 5.0)
+        high = price + 1.0 + (i % 4) * 0.25
+        low = price - 1.0 - (i % 3) * 0.25
+        open_ = price + ((i % 5) - 2) * 0.2
+        volume = 1_000_000 + (i * 9973 % 250_000)
+        bars.append(
+            Bar(
+                bar_date=start + timedelta(days=i),
+                open=open_,
+                high=high,
+                low=low,
+                close=price,
+                volume=volume,
+            )
+        )
+    return bars
+
+
+def test_every_indicator_computes_without_error():
+    from quant_indicators.indicators import registry
+
+    bars = _synthetic_ohlcv()
+    for indicator in registry.all_indicators():
+        points = indicator.compute(bars)
+        assert points, f"{indicator.code} produced no points"
+        for p in points:
+            # bar_date must be a real bar date from the input.
+            assert p.bar_date is not None
+            if indicator.outputs:
+                assert p.values is not None, f"{indicator.code} missing values dict"
+                assert set(p.values.keys()) == set(indicator.outputs), indicator.code
+            else:
+                assert p.value is not None, f"{indicator.code} produced a None value"
+
+
+def test_stochastic_bounded_0_100():
+    bars = _synthetic_ohlcv(60)
+    from quant_indicators.indicators.momentum import Stochastic
+
+    points = Stochastic().compute(bars)
+    assert points
+    for p in points:
+        assert 0.0 <= p.values["k"] <= 100.0
+
+
+def test_williams_r_bounded():
+    bars = _synthetic_ohlcv(60)
+    from quant_indicators.indicators.momentum import WilliamsR
+
+    points = WilliamsR().compute(bars)
+    assert points
+    for p in points:
+        assert -100.0 <= p.value <= 0.0
+
+
+def test_donchian_channel_ordering():
+    bars = _synthetic_ohlcv(60)
+    from quant_indicators.indicators.volatility import DonchianChannels
+
+    points = DonchianChannels().compute(bars)
+    assert points
+    for p in points:
+        assert p.values["lower"] <= p.values["middle"] <= p.values["upper"]
+
+
+def test_pivot_points_ordering():
+    bars = _synthetic_ohlcv(10)
+    from quant_indicators.indicators.levels import PivotPoints
+
+    points = PivotPoints().compute(bars)
+    assert points
+    for p in points:
+        v = p.values
+        assert v["s3"] <= v["s2"] <= v["s1"] <= v["r1"] <= v["r2"] <= v["r3"]
+

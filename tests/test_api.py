@@ -26,7 +26,7 @@ def client(monkeypatch):
         app_module,
         "check_database_readiness",
         lambda engine: ReadinessStatus(
-            ready=True, schema_version="0001_indicators_schema", tables_present=3
+            ready=True, schema_version="0002_current_values_only", tables_present=3
         ),
     )
     monkeypatch.setattr(
@@ -94,7 +94,7 @@ def test_ready(client):
     resp = client.get("/ready")
     assert resp.status_code == 200
     assert resp.json["ready"] is True
-    assert resp.json["schema_version"] == "0001_indicators_schema"
+    assert resp.json["schema_version"] == "0002_current_values_only"
 
 
 def test_list_indicators(client):
@@ -108,12 +108,6 @@ def test_indicator_values(client):
     resp = client.get("/indicators/values?ticker=AAPL&indicator=sma_50")
     assert resp.status_code == 200
     assert resp.json["values"][0]["value"] == 150.0
-
-
-def test_indicator_values_bad_date(client):
-    resp = client.get("/indicators/values?from=not-a-date", expect_errors=True)
-    assert resp.status_code == 400
-    assert "invalid from" in resp.json["error"]
 
 
 def test_latest_values(client):

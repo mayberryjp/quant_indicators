@@ -17,7 +17,7 @@ FIXTURE_DIR = Path(__file__).parent / "fixtures" / "bars"
 
 
 def test_expected_constants():
-    assert EXPECTED_SCHEMA_VERSION == "0001_indicators_schema"
+    assert EXPECTED_SCHEMA_VERSION == "0002_current_values_only"
     assert set(EXPECTED_TABLES) == {
         "indicator_definitions",
         "indicator_runs",
@@ -36,7 +36,6 @@ def test_parser_compute_defaults():
     args = parser.parse_args(["indicators", "compute", "--fixture", "x", "--dry-run"])
     assert args.fixture == "x"
     assert args.dry_run is True
-    assert args.mode == "backfill"
 
 
 def test_indicators_list_runs(capsys):
@@ -51,8 +50,3 @@ def test_indicators_compute_fixture_dry_run(capsys):
     assert rc == 0
     out = capsys.readouterr().out
     assert "compute_summary" in out
-
-
-def test_compute_one_shot_requires_from_date():
-    with pytest.raises(SystemExit):
-        main(["indicators", "compute"])

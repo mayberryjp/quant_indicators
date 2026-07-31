@@ -38,6 +38,15 @@ class _SMA(Indicator):
 
 
 @register
+class SMA10(_SMA):
+    window = 10
+    code = "sma_10"
+    display_name = "SMA (10)"
+    min_periods = 10
+    description = "10-day simple moving average of close."
+
+
+@register
 class SMA20(_SMA):
     window = 20
     code = "sma_20"
@@ -53,6 +62,15 @@ class SMA50(_SMA):
     display_name = "SMA (50)"
     min_periods = 50
     description = "50-day simple moving average of close."
+
+
+@register
+class SMA100(_SMA):
+    window = 100
+    code = "sma_100"
+    display_name = "SMA (100)"
+    min_periods = 100
+    description = "100-day simple moving average of close."
 
 
 @register
@@ -86,6 +104,15 @@ class _EMA(Indicator):
 
 
 @register
+class EMA9(_EMA):
+    window = 9
+    code = "ema_9"
+    display_name = "EMA (9)"
+    min_periods = 9
+    description = "9-day exponential moving average of close."
+
+
+@register
 class EMA12(_EMA):
     window = 12
     code = "ema_12"
@@ -101,6 +128,24 @@ class EMA26(_EMA):
     display_name = "EMA (26)"
     min_periods = 26
     description = "26-day exponential moving average of close."
+
+
+@register
+class EMA50(_EMA):
+    window = 50
+    code = "ema_50"
+    display_name = "EMA (50)"
+    min_periods = 50
+    description = "50-day exponential moving average of close."
+
+
+@register
+class EMA200(_EMA):
+    window = 200
+    code = "ema_200"
+    display_name = "EMA (200)"
+    min_periods = 200
+    description = "200-day exponential moving average of close."
 
 
 # ── RSI ──────────────────────────────────────────────────────────────────────

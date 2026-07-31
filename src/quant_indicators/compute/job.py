@@ -28,14 +28,17 @@ log = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class ComputeOptions:
-    """Parameters for an indicator computation run."""
+    """Parameters for an indicator computation run.
 
-    from_date: date | None = None
-    to_date: date | None = None
+    The job stores only the current value of each indicator per symbol, so
+    there is no date window: it loads the most recent `lookback_days` of bars
+    (enough to warm up the longest indicator) and keeps the latest point.
+    """
+
     tickers: list[str] | None = None
     adjustment_type: str = "unadjusted"
     indicator_codes: list[str] | None = None  # None => all registered
-    mode: str = "backfill"  # 'backfill' or 'incremental'
+    mode: str = "current"
     lookback_days: int = 400
     fixture_path: str | None = None
     dry_run: bool = False
@@ -49,9 +52,10 @@ UPSERT_INDICATOR_VALUE = text("""
         :symbol_id, :ticker, :bar_date, :indicator_code, :indicator_version,
         :adjustment_type, :value, CAST(:values_json AS JSON), :indicator_run_id, now()
     )
-    ON CONFLICT (symbol_id, bar_date, indicator_code, indicator_version, adjustment_type)
+    ON CONFLICT (symbol_id, indicator_code, indicator_version, adjustment_type)
     DO UPDATE SET
         ticker = EXCLUDED.ticker,
+        bar_date = EXCLUDED.bar_date,
         value = EXCLUDED.value,
         values_json = EXCLUDED.values_json,
         indicator_run_id = EXCLUDED.indicator_run_id,
@@ -151,9 +155,10 @@ class IndicatorComputeJob:
         run_id = self._create_run(options, len(targets))
         summary.run_id = run_id
 
-        load_start = None
-        if options.from_date is not None:
-            load_start = options.from_date - timedelta(days=options.lookback_days)
+        # Only the current value is stored, so load a recent tail large enough
+        # to warm up the longest indicator; the latest bar in that tail is the
+        # bar each current value is computed from.
+        load_start = date.today() - timedelta(days=options.lookback_days)
 
         for symbol_id, ticker in targets:
             try:
@@ -163,13 +168,17 @@ class IndicatorComputeJob:
                     ticker=ticker,
                     adjustment_type=options.adjustment_type,
                     start_date=load_start,
-                    end_date=options.to_date,
+                    end_date=None,
                 )
                 upserted = self._compute_and_store(symbol_bars, indicators, options, run_id)
                 summary.values_upserted += upserted
-                summary.symbols_succeeded += 1
-                if upserted == 0:
-                    summary.warnings.append(f"{ticker}: no indicator values produced")
+                if upserted > 0:
+                    summary.symbols_succeeded += 1
+                else:
+                    # No recent bar to compute a current value from (delisted /
+                    # illiquid / not yet ingested) — expected, not an error.
+                    summary.symbols_skipped += 1
+                    log.debug("skipped %s: no recent bars to compute current values", ticker)
             except Exception as exc:  # noqa: BLE001 - isolate per-symbol failures
                 summary.symbols_failed += 1
                 summary.errors += 1
@@ -208,12 +217,13 @@ class IndicatorComputeJob:
         rows: list[dict[str, Any]] = []
         for indicator in indicators:
             points = indicator.compute(bars)
-            for point in points:
-                if not _in_window(point.bar_date, options.from_date, options.to_date):
-                    continue
-                rows.append(
-                    self._point_to_row(symbol_bars, indicator, point, options, run_id)
-                )
+            if not points:
+                continue
+            # Current-value model: keep only the most recent point.
+            point = points[-1]
+            rows.append(
+                self._point_to_row(symbol_bars, indicator, point, options, run_id)
+            )
         return rows
 
     @staticmethod
@@ -254,8 +264,8 @@ class IndicatorComputeJob:
                 {
                     "mode": options.mode,
                     "adjustment_type": options.adjustment_type,
-                    "start_date": options.from_date,
-                    "end_date": options.to_date,
+                    "start_date": date.today() - timedelta(days=options.lookback_days),
+                    "end_date": date.today(),
                     "symbols_count": symbols_count,
                 },
             ).scalar_one()
@@ -361,11 +371,3 @@ class IndicatorComputeJob:
         summary.status = "ok" if summary.errors == 0 else "failed"
         summary.duration_seconds = time.monotonic() - started
         return summary
-
-
-def _in_window(value: date, from_date: date | None, to_date: date | None) -> bool:
-    if from_date is not None and value < from_date:
-        return False
-    if to_date is not None and value > to_date:
-        return False
-    return True

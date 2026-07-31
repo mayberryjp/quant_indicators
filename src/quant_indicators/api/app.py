@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import date
 from typing import Any, Callable
 
 import bottle
@@ -41,16 +40,6 @@ def _default_engine_factory() -> Engine:
 def _json(payload: Any, status: int = 200) -> HTTPResponse:
     body = json.dumps(payload, default=str)
     return HTTPResponse(body=body, status=status, headers={"Content-Type": "application/json"})
-
-
-def _parse_date_param(name: str) -> date | None:
-    raw = request.query.get(name)
-    if not raw:
-        return None
-    try:
-        return date.fromisoformat(raw)
-    except ValueError:
-        raise _ApiError(f"invalid {name}: {raw} (use YYYY-MM-DD)", 400)
 
 
 def _parse_int_param(name: str, default: int) -> int:
@@ -117,8 +106,6 @@ def create_app(engine_factory: EngineFactory | None = None) -> Bottle:
             ticker=request.query.get("ticker") or None,
             indicator_code=request.query.get("indicator") or None,
             adjustment_type=request.query.get("adjustment_type") or None,
-            from_date=_parse_date_param("from"),
-            to_date=_parse_date_param("to"),
             limit=_parse_int_param("limit", 500),
             offset=_parse_int_param("offset", 0),
         )

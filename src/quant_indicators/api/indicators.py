@@ -73,8 +73,6 @@ class ValuesQuery:
     ticker: str | None = None
     indicator_code: str | None = None
     adjustment_type: str | None = None
-    from_date: date | None = None
-    to_date: date | None = None
     limit: int = 500
     offset: int = 0
 
@@ -91,12 +89,6 @@ def list_indicator_values(engine: Engine, query: ValuesQuery) -> list[dict[str, 
     if query.adjustment_type:
         conditions.append("adjustment_type = :adjustment_type")
         params["adjustment_type"] = query.adjustment_type
-    if query.from_date:
-        conditions.append("bar_date >= :from_date")
-        params["from_date"] = query.from_date
-    if query.to_date:
-        conditions.append("bar_date <= :to_date")
-        params["to_date"] = query.to_date
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     params["limit"] = max(1, min(query.limit, 5000))
@@ -109,7 +101,7 @@ def list_indicator_values(engine: Engine, query: ValuesQuery) -> list[dict[str, 
                        adjustment_type, value, values_json
                 FROM indicators.indicator_values
                 {where}
-                ORDER BY bar_date DESC, indicator_code
+                ORDER BY ticker, indicator_code
                 LIMIT :limit OFFSET :offset
             """),
             params,
@@ -129,12 +121,11 @@ def latest_values_for_ticker(
     with engine.connect() as conn:
         rows = conn.execute(
             text(f"""
-                SELECT DISTINCT ON (indicator_code, indicator_version, adjustment_type)
-                    symbol_id, ticker, bar_date, indicator_code, indicator_version,
-                    adjustment_type, value, values_json
+                SELECT symbol_id, ticker, bar_date, indicator_code, indicator_version,
+                       adjustment_type, value, values_json
                 FROM indicators.indicator_values
                 WHERE ticker = :ticker {adj_clause}
-                ORDER BY indicator_code, indicator_version, adjustment_type, bar_date DESC
+                ORDER BY indicator_code, indicator_version, adjustment_type
             """),
             params,
         ).mappings().all()

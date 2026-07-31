@@ -30,8 +30,10 @@ with the `market_data` schema owned by `quant_daily_bars`.
 
 - `indicator_definitions` — registry metadata (code, version, outputs, params).
 - `indicator_runs` — one row per compute run, with heartbeat and counts.
-- `indicator_values` — computed values, unique per
-  `(symbol_id, bar_date, indicator_code, indicator_version, adjustment_type)`.
+- `indicator_values` — the **current** value of each indicator, unique per
+  `(symbol_id, indicator_code, indicator_version, adjustment_type)`. `bar_date`
+  is kept as an as-of column (the bar the value was computed from), not part of
+  the key — each run overwrites the row, so no history accumulates.
 
 Single-output indicators (e.g. SMA) write the `value` column; multi-output
 indicators (e.g. MACD) write a JSON object to `values_json`.
@@ -39,20 +41,82 @@ indicators (e.g. MACD) write a JSON object to `values_json`.
 ## Indicators
 
 Indicators are pluggable: subclass `Indicator`, decorate with `@register`, and
-the compute job and CLI pick them up automatically — no pipeline changes.
+the compute job and CLI pick them up automatically — no pipeline changes. Run
+`quant-indicators indicators list` for the full registered set (57 and counting).
 
-| Code                       | Description                                             |
-| -------------------------- | ------------------------------------------------------ |
-| `sma_20` / `sma_50` / `sma_200` | Simple moving averages                            |
-| `ema_12` / `ema_26`        | Exponential moving averages (SMA-seeded)               |
-| `rsi_14`                   | Relative Strength Index (Wilder)                       |
-| `macd`                     | MACD line / signal / histogram                         |
-| `atr_14`                   | Average True Range                                     |
-| `bbands_20_2`              | Bollinger Bands (middle/upper/lower/bandwidth)         |
-| `obv`                      | On-Balance Volume                                      |
-| `adx_14`                   | ADX with +DI / -DI                                     |
-| `support_resistance_20` / `support_resistance_252` | Rolling low/high levels        |
-| `volume_shelf_60`          | Volume-by-price POC and 70% value area                 |
+**Moving averages** (`averages.py`, `core.py`)
+
+| Code | Description |
+| ---- | ----------- |
+| `sma_10` / `sma_20` / `sma_50` / `sma_100` / `sma_200` | Simple moving averages |
+| `ema_9` / `ema_12` / `ema_26` / `ema_50` / `ema_200` | Exponential moving averages (SMA-seeded) |
+| `wma_20` | Linearly weighted moving average |
+| `hma_20` | Hull moving average |
+| `dema_20` / `tema_20` | Double / triple exponential moving averages |
+| `vwma_20` | Volume-weighted moving average |
+
+**Momentum / oscillators** (`core.py`, `momentum.py`)
+
+| Code | Description |
+| ---- | ----------- |
+| `rsi_14` | Relative Strength Index (Wilder) |
+| `macd` | MACD line / signal / histogram |
+| `ppo` | Percentage Price Oscillator (ppo/signal/histogram) |
+| `stoch_14_3` | Stochastic Oscillator (%K / %D) |
+| `stochrsi_14` | Stochastic RSI (stochrsi / %K / %D) |
+| `willr_14` | Williams %R |
+| `cci_20` | Commodity Channel Index |
+| `roc_12` / `mom_10` | Rate of change / momentum |
+| `mfi_14` | Money Flow Index |
+| `cmo_14` | Chande Momentum Oscillator |
+| `tsi` | True Strength Index |
+| `ao` | Awesome Oscillator |
+| `uo` | Ultimate Oscillator |
+
+**Volatility / channels** (`core.py`, `volatility.py`)
+
+| Code | Description |
+| ---- | ----------- |
+| `atr_14` | Average True Range |
+| `bbands_20_2` | Bollinger Bands (middle/upper/lower/bandwidth) |
+| `keltner_20` | Keltner Channels (middle/upper/lower) |
+| `donchian_20` | Donchian Channels (upper/lower/middle) |
+| `hv_20` | Annualized historical volatility |
+| `ulcer_14` | Ulcer Index |
+| `stddev_20` | Rolling standard deviation of close |
+
+**Volume** (`core.py`, `volume.py`)
+
+| Code | Description |
+| ---- | ----------- |
+| `obv` | On-Balance Volume |
+| `adl` | Accumulation/Distribution Line |
+| `cmf_20` | Chaikin Money Flow |
+| `chaikin_osc` | Chaikin Oscillator |
+| `force_index_13` | Force Index |
+| `eom_14` | Ease of Movement |
+| `pvt` | Price Volume Trend |
+| `vol_sma_20` | Volume simple moving average |
+
+**Trend** (`trend.py`)
+
+| Code | Description |
+| ---- | ----------- |
+| `adx_14` | ADX with +DI / -DI |
+| `aroon_25` | Aroon Up/Down and oscillator |
+| `vortex_14` | Vortex Indicator (+VI / -VI) |
+| `trix_15` | TRIX |
+| `dpo_20` | Detrended Price Oscillator |
+| `psar` | Parabolic SAR (sar / trend) |
+
+**Levels** (`levels.py`)
+
+| Code | Description |
+| ---- | ----------- |
+| `support_resistance_20` / `_50` / `_100` / `_252` | Rolling low/high levels |
+| `volume_shelf_60` | Volume-by-price POC and 70% value area |
+| `pivot_points` | Classic floor-trader pivots (P/R1-3/S1-3) |
+| `pivot_fib` | Fibonacci pivots (P/R1-3/S1-3) |
 
 ## Quick start (Docker)
 
@@ -85,9 +149,8 @@ python -m quant_indicators.cli db verify
 python -m quant_indicators.cli indicators list
 python -m quant_indicators.cli indicators sync-definitions
 
-# One-shot compute over a date range for specific tickers
-python -m quant_indicators.cli indicators compute \
-    --from-date 2024-01-01 --to-date 2024-03-31 --tickers AAPL,MSFT
+# One-shot compute of current values for specific tickers
+python -m quant_indicators.cli indicators compute --tickers AAPL,MSFT
 
 # Continuous daily recompute (used by supervisord)
 python -m quant_indicators.cli indicators compute --schedule 86400
@@ -98,8 +161,11 @@ python -m quant_indicators.cli indicators compute --fixture tests/fixtures/bars 
 python -m quant_indicators.cli indicators run-summary --latest
 ```
 
-`--lookback-days` (default `400`) loads extra history before `--from-date` so
-long-window indicators such as `sma_200` warm up correctly.
+Each run computes and overwrites the current value of every indicator per
+ticker; there is no date window. `--lookback-days` (default `400`) sets how much
+recent history is loaded per symbol so long-window indicators such as `sma_200`
+and `support_resistance_252` warm up correctly. A late-arriving bar is picked up
+automatically on the next run.
 
 ## Retrieval API
 
@@ -108,9 +174,9 @@ long-window indicators such as `sma_200` warm up correctly.
 | `GET /health`                           | Liveness probe.                          |
 | `GET /ready`                            | Readiness: DB migrated to expected schema. |
 | `GET /indicators`                       | List registered/active indicator definitions. |
-| `GET /indicators/values`                | Query values (`ticker`, `indicator`, `from`, `to`, `adjustment_type`, `limit`, `offset`). |
-| `GET /indicators/values/latest/<ticker>`| Latest value per indicator for a ticker. |
-| `GET /indicators/coverage`              | Per-ticker/indicator point counts and date span. |
+| `GET /indicators/values`                | Query values (`ticker`, `indicator`, `adjustment_type`, `limit`, `offset`). |
+| `GET /indicators/values/latest/<ticker>`| Current value of each indicator for a ticker. |
+| `GET /indicators/coverage`              | Per-ticker/indicator as-of date. |
 | `GET /runs`                             | Recent compute runs.                     |
 | `GET /runs/latest`                      | Most recent run.                         |
 | `GET /runs/<id>`                        | A specific run.                          |
@@ -124,6 +190,6 @@ See `.env.example`. Key variables:
 | `DATABASE_URL`              | `postgresql+psycopg://quant:...` | Postgres connection.                |
 | `BARS_SCHEMA` / `BARS_TABLE`| `market_data` / `daily_bars`     | Where input bars are read from.     |
 | `INDICATOR_ADJUSTMENT_TYPE` | `unadjusted`                     | Default price series.               |
-| `INDICATOR_LOOKBACK_DAYS`   | `400`                            | Warm-up history before start date.  |
+| `INDICATOR_LOOKBACK_DAYS`   | `400`                            | Recent history loaded per symbol for warm-up. |
 | `COMPUTE_INTERVAL`          | `86400`                          | Seconds between scheduled computes. |
 | `API_LISTEN_ADDRESS` / `API_PORT` | `0.0.0.0` / `8001`         | API bind address.                   |
