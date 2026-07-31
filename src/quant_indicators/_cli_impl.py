@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 
-EXPECTED_SCHEMA_VERSION = "0002_current_values_only"
+EXPECTED_SCHEMA_VERSION = "0003_flatten_output_rows"
 EXPECTED_TABLES = (
     "indicator_definitions",
     "indicator_runs",

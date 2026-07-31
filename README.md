@@ -35,8 +35,9 @@ with the `market_data` schema owned by `quant_daily_bars`.
   is kept as an as-of column (the bar the value was computed from), not part of
   the key — each run overwrites the row, so no history accumulates.
 
-Single-output indicators (e.g. SMA) write the `value` column; multi-output
-indicators (e.g. MACD) write a JSON object to `values_json`.
+Single-output indicators (e.g. SMA) write one row under their base code
+(`sma_50`). Multi-output indicators (e.g. MACD) also write to `value`, but as
+multiple suffixed rows (`macd_macd`, `macd_signal`, `macd_histogram`).
 
 ## Indicators
 

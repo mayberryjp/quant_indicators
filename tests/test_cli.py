@@ -17,7 +17,7 @@ FIXTURE_DIR = Path(__file__).parent / "fixtures" / "bars"
 
 
 def test_expected_constants():
-    assert EXPECTED_SCHEMA_VERSION == "0002_current_values_only"
+    assert EXPECTED_SCHEMA_VERSION == "0003_flatten_output_rows"
     assert set(EXPECTED_TABLES) == {
         "indicator_definitions",
         "indicator_runs",

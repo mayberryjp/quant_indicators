@@ -27,7 +27,6 @@ def _decode_values(raw: Any) -> Any:
 
 
 def _row_to_value(row: dict[str, Any]) -> dict[str, Any]:
-    values = _decode_values(row.get("values_json"))
     return {
         "ticker": row["ticker"],
         "symbol_id": row["symbol_id"],
@@ -36,7 +35,6 @@ def _row_to_value(row: dict[str, Any]) -> dict[str, Any]:
         "indicator_version": row["indicator_version"],
         "adjustment_type": row["adjustment_type"],
         "value": float(row["value"]) if row.get("value") is not None else None,
-        "values": values,
     }
 
 
@@ -98,7 +96,7 @@ def list_indicator_values(engine: Engine, query: ValuesQuery) -> list[dict[str, 
         rows = conn.execute(
             text(f"""
                 SELECT symbol_id, ticker, bar_date, indicator_code, indicator_version,
-                       adjustment_type, value, values_json
+                       adjustment_type, value
                 FROM indicators.indicator_values
                 {where}
                 ORDER BY ticker, indicator_code
@@ -122,7 +120,7 @@ def latest_values_for_ticker(
         rows = conn.execute(
             text(f"""
                 SELECT symbol_id, ticker, bar_date, indicator_code, indicator_version,
-                       adjustment_type, value, values_json
+                       adjustment_type, value
                 FROM indicators.indicator_values
                 WHERE ticker = :ticker {adj_clause}
                 ORDER BY indicator_code, indicator_version, adjustment_type

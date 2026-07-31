@@ -26,7 +26,7 @@ def client(monkeypatch):
         app_module,
         "check_database_readiness",
         lambda engine: ReadinessStatus(
-            ready=True, schema_version="0002_current_values_only", tables_present=3
+            ready=True, schema_version="0003_flatten_output_rows", tables_present=3
         ),
     )
     monkeypatch.setattr(
@@ -94,7 +94,7 @@ def test_ready(client):
     resp = client.get("/ready")
     assert resp.status_code == 200
     assert resp.json["ready"] is True
-    assert resp.json["schema_version"] == "0002_current_values_only"
+    assert resp.json["schema_version"] == "0003_flatten_output_rows"
 
 
 def test_list_indicators(client):

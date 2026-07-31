@@ -3,6 +3,10 @@
 Reads daily bars from Postgres, runs the enabled set of registered indicators
 per symbol, and upserts results into indicators.indicator_values with
 idempotent ON CONFLICT semantics and per-run tracking.
+
+Single-output indicators store one row under their base code (for example,
+"sma_50"). Multi-output indicators store one row per output component under
+suffixed codes (for example, "bbands_20_2_upper").
 """
 
 from __future__ import annotations
@@ -47,17 +51,16 @@ class ComputeOptions:
 UPSERT_INDICATOR_VALUE = text("""
     INSERT INTO indicators.indicator_values (
         symbol_id, ticker, bar_date, indicator_code, indicator_version,
-        adjustment_type, value, values_json, indicator_run_id, updated_at
+        adjustment_type, value, indicator_run_id, updated_at
     ) VALUES (
         :symbol_id, :ticker, :bar_date, :indicator_code, :indicator_version,
-        :adjustment_type, :value, CAST(:values_json AS JSON), :indicator_run_id, now()
+        :adjustment_type, :value, :indicator_run_id, now()
     )
     ON CONFLICT (symbol_id, indicator_code, indicator_version, adjustment_type)
     DO UPDATE SET
         ticker = EXCLUDED.ticker,
         bar_date = EXCLUDED.bar_date,
         value = EXCLUDED.value,
-        values_json = EXCLUDED.values_json,
         indicator_run_id = EXCLUDED.indicator_run_id,
         updated_at = now()
 """)
@@ -221,31 +224,43 @@ class IndicatorComputeJob:
                 continue
             # Current-value model: keep only the most recent point.
             point = points[-1]
-            rows.append(
-                self._point_to_row(symbol_bars, indicator, point, options, run_id)
-            )
+            rows.extend(self._point_to_rows(symbol_bars, indicator, point, options, run_id))
         return rows
 
     @staticmethod
-    def _point_to_row(
+    def _point_to_rows(
         symbol_bars: SymbolBars,
         indicator: Indicator,
         point: IndicatorPoint,
         options: ComputeOptions,
         run_id: int | None,
-    ) -> dict[str, Any]:
-        values_json = json.dumps(point.values) if point.values is not None else None
-        return {
+    ) -> list[dict[str, Any]]:
+        base_row = {
             "symbol_id": symbol_bars.symbol_id,
             "ticker": symbol_bars.ticker,
             "bar_date": point.bar_date,
-            "indicator_code": indicator.code,
             "indicator_version": indicator.version,
             "adjustment_type": options.adjustment_type,
-            "value": point.value,
-            "values_json": values_json,
             "indicator_run_id": run_id,
         }
+
+        if point.values is not None:
+            return [
+                {
+                    **base_row,
+                    "indicator_code": f"{indicator.code}_{name}",
+                    "value": value,
+                }
+                for name, value in point.values.items()
+            ]
+
+        return [
+            {
+                **base_row,
+                "indicator_code": indicator.code,
+                "value": point.value,
+            }
+        ]
 
     # ── run tracking ─────────────────────────────────────────────────────────
 
@@ -359,8 +374,7 @@ class IndicatorComputeJob:
                 summary.values_upserted += len(rows)
                 summary.symbols_succeeded += 1
                 for row in rows[:10]:
-                    printable = row["value"] if row["value"] is not None else row["values_json"]
-                    print(f"  {ticker}  {row['bar_date']}  {row['indicator_code']}={printable}")
+                    print(f"  {ticker}  {row['bar_date']}  {row['indicator_code']}={row['value']}")
             else:
                 with self._engine.begin() as conn:
                     if rows:

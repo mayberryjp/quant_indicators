@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from quant_indicators.compute.job import ComputeOptions, IndicatorComputeJob
+from quant_indicators.indicators.registry import all_indicators
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "bars"
 
@@ -33,14 +34,18 @@ def test_compute_fixture_respects_indicator_selection():
     assert summary.values_upserted > 0
 
 
-def test_compute_fixture_stores_one_value_per_indicator():
+def test_compute_fixture_stores_one_value_per_indicator_output():
     job = IndicatorComputeJob(engine=None)
     summary = job.run(ComputeOptions(fixture_path=str(FIXTURE_DIR), dry_run=True))
 
-    # Current-value model: exactly one row per (symbol, indicator) that produced
-    # output. The fixture has enough history for every indicator to emit.
+    # Current-value model with flattened multi-output indicators: one row per
+    # (symbol, indicator output component) that produced output.
+    expected_rows_per_symbol = sum(
+        len(ind.outputs) if ind.outputs else 1
+        for ind in all_indicators()
+    )
     assert summary.symbols_requested >= 1
-    assert summary.values_upserted == summary.indicators_run * summary.symbols_requested
+    assert summary.values_upserted == expected_rows_per_symbol * summary.symbols_requested
 
 
 def test_summary_format_line():
