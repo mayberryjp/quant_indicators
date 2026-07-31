@@ -20,7 +20,7 @@ The service runs in a single container orchestrated by `supervisord`:
 | ----------------------- | --------------------------------------------------------- |
 | `db-migrate`            | `alembic upgrade head` on startup (one-shot).             |
 | `indicators-compute`    | Recompute indicators on a schedule (`COMPUTE_INTERVAL`).  |
-| `quant-indicators-api`  | Serve the retrieval API (`API_PORT`, default 8000).       |
+| `quant-indicators-api`  | Serve the retrieval API (`API_PORT`, default 8001).       |
 
 ## Schema
 
@@ -62,7 +62,7 @@ docker compose up --build
 ```
 
 This starts Postgres, runs migrations, computes indicators, and serves the API
-on `http://localhost:8000`.
+on `http://localhost:8001`.
 
 ## Local development
 
@@ -126,4 +126,4 @@ See `.env.example`. Key variables:
 | `INDICATOR_ADJUSTMENT_TYPE` | `unadjusted`                     | Default price series.               |
 | `INDICATOR_LOOKBACK_DAYS`   | `400`                            | Warm-up history before start date.  |
 | `COMPUTE_INTERVAL`          | `86400`                          | Seconds between scheduled computes. |
-| `API_LISTEN_ADDRESS` / `API_PORT` | `0.0.0.0` / `8000`         | API bind address.                   |
+| `API_LISTEN_ADDRESS` / `API_PORT` | `0.0.0.0` / `8001`         | API bind address.                   |

@@ -177,7 +177,7 @@ def serve() -> None:
         level=logging.INFO,
     )
     host = os.environ.get("API_LISTEN_ADDRESS", "0.0.0.0")
-    port = int(os.environ.get("API_PORT", "8000"))
+    port = int(os.environ.get("API_PORT", "8001"))
     app = create_app()
     log.info("serving quant_indicators API on %s:%d", host, port)
     waitress_serve(app, host=host, port=port)
