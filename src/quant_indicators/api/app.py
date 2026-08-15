@@ -85,6 +85,17 @@ def create_app(engine_factory: EngineFactory | None = None) -> Bottle:
         bottle.response.content_type = "application/json"
         return json.dumps({"error": "not found"})
 
+    @app.route("/<path:path>", method="OPTIONS")
+    def cors_preflight(path: str) -> HTTPResponse:  # noqa: ARG001
+        return HTTPResponse(status=204)
+
+    @app.hook("after_request")
+    def _add_cors_headers() -> None:
+        bottle.response.headers["Access-Control-Allow-Origin"] = "*"
+        bottle.response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+        bottle.response.headers["Access-Control-Allow-Headers"] = "*"
+        bottle.response.headers["Access-Control-Max-Age"] = "86400"
+
     @app.route("/health")
     def health() -> HTTPResponse:
         return _json({"status": "ok"})
