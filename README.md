@@ -19,7 +19,7 @@ The service runs in a single container orchestrated by `supervisord`:
 | Program                 | Responsibility                                            |
 | ----------------------- | --------------------------------------------------------- |
 | `db-migrate`            | `alembic upgrade head` on startup (one-shot).             |
-| `indicators-compute`    | Recompute indicators on a schedule (`COMPUTE_INTERVAL`).  |
+| `indicators-compute`    | Recompute indicators once per day at `COMPUTE_SCHEDULE_TIME`. |
 | `quant-indicators-api`  | Serve the retrieval API (`API_PORT`, default 8001).       |
 
 ## Schema
@@ -192,5 +192,6 @@ See `.env.example`. Key variables:
 | `BARS_SCHEMA` / `BARS_TABLE`| `market_data` / `daily_bars`     | Where input bars are read from.     |
 | `INDICATOR_ADJUSTMENT_TYPE` | `unadjusted`                     | Default price series.               |
 | `INDICATOR_LOOKBACK_DAYS`   | `400`                            | Recent history loaded per symbol for warm-up. |
-| `COMPUTE_INTERVAL`          | `86400`                          | Seconds between scheduled computes. |
+| `COMPUTE_SCHEDULE_TIME`     | `01:00`                          | Wall-clock `HH:MM` for the daily compute run. |
+| `COMPUTE_SCHEDULE_TIMEZONE` | `UTC`                            | IANA timezone for `COMPUTE_SCHEDULE_TIME`. |
 | `API_LISTEN_ADDRESS` / `API_PORT` | `0.0.0.0` / `8001`         | API bind address.                   |

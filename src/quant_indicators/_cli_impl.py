@@ -6,7 +6,9 @@ import argparse
 import logging
 import os
 import time
+from datetime import datetime, time as dt_time, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 
 EXPECTED_SCHEMA_VERSION = "0003_flatten_output_rows"
@@ -53,6 +55,38 @@ def _lookback_default() -> int:
         return int(os.environ.get("INDICATOR_LOOKBACK_DAYS", "400"))
     except ValueError:
         return 400
+
+
+def _timezone_default() -> str:
+    return os.environ.get("COMPUTE_SCHEDULE_TIMEZONE", "UTC").strip() or "UTC"
+
+
+def _parse_daily_at(value: str) -> tuple[int, int]:
+    parts = value.split(":")
+    if len(parts) != 2:
+        raise SystemExit(f"--daily-at must be HH:MM, got {value!r}")
+    try:
+        hour, minute = int(parts[0]), int(parts[1])
+    except ValueError as exc:
+        raise SystemExit(f"--daily-at must be HH:MM, got {value!r}") from exc
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise SystemExit(f"--daily-at must be HH:MM within 00:00-23:59, got {value!r}")
+    return hour, minute
+
+
+def _load_timezone(name: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(name)
+    except Exception as exc:  # noqa: BLE001
+        raise SystemExit(f"unknown timezone {name!r}") from exc
+
+
+def _seconds_until(hour: int, minute: int, tz: ZoneInfo) -> tuple[float, datetime]:
+    now = datetime.now(tz)
+    target = datetime.combine(now.date(), dt_time(hour, minute), tzinfo=tz)
+    if target <= now:
+        target = datetime.combine(now.date() + timedelta(days=1), dt_time(hour, minute), tzinfo=tz)
+    return max((target - now).total_seconds(), 0.0), target
 
 
 # ── db commands ─────────────────────────────────────────────────────────────
@@ -143,13 +177,28 @@ def indicators_compute(args: argparse.Namespace) -> None:
     from quant_indicators.compute.job import ComputeOptions, IndicatorComputeJob
 
     interval = getattr(args, "schedule", None)
-    run_once = interval is None
+    daily_at = getattr(args, "daily_at", None)
+    if daily_at and interval is not None:
+        raise SystemExit("--daily-at and --schedule are mutually exclusive")
+
+    run_once = interval is None and not daily_at
     codes = _selected_codes(args)
     log = logging.getLogger(__name__)
+
+    schedule_hour = schedule_minute = 0
+    tz = None
+    if daily_at:
+        schedule_hour, schedule_minute = _parse_daily_at(daily_at)
+        tz = _load_timezone(getattr(args, "timezone", None) or _timezone_default())
 
     tickers = [t.strip() for t in args.tickers.split(",")] if args.tickers else None
 
     while True:
+        if tz is not None:
+            delay, target = _seconds_until(schedule_hour, schedule_minute, tz)
+            log.info("next compute at %s (in %d seconds)", target.isoformat(), int(delay))
+            time.sleep(delay)
+
         engine = None if (args.dry_run and args.fixture) else _engine()
         try:
             options = ComputeOptions(
@@ -188,8 +237,9 @@ def indicators_compute(args: argparse.Namespace) -> None:
 
         if run_once:
             break
-        log.info("next compute in %d seconds", interval)
-        time.sleep(interval)
+        if tz is None:
+            log.info("next compute in %d seconds", interval)
+            time.sleep(interval)
 
 
 def indicators_run_summary(args: argparse.Namespace) -> None:
@@ -258,6 +308,8 @@ def build_parser() -> argparse.ArgumentParser:
     compute_parser.add_argument("--fixture", help="Path to a bars fixture file or directory.")
     compute_parser.add_argument("--dry-run", action="store_true", help="Compute without database writes (fixture mode).")
     compute_parser.add_argument("--schedule", type=int, metavar="SECONDS", help="Run continuously, sleeping SECONDS between compute cycles.")
+    compute_parser.add_argument("--daily-at", type=str, default=None, metavar="HH:MM", help="Run once per day at this wall-clock time.")
+    compute_parser.add_argument("--timezone", type=str, default=_timezone_default(), metavar="TZ", help="IANA timezone for --daily-at (default: COMPUTE_SCHEDULE_TIMEZONE or UTC).")
     compute_parser.set_defaults(func=indicators_compute)
 
     run_summary_parser = ind_subparsers.add_parser("run-summary")
