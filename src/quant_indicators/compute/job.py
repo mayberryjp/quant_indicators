@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -28,6 +29,13 @@ from quant_indicators.indicators.base import Indicator, IndicatorPoint
 from quant_indicators.indicators.registry import get_indicators
 
 log = logging.getLogger(__name__)
+
+# indicator_values.value is Numeric(20, 8): 12 digits before the decimal
+# point. Indicators can blow past that (e.g. a near-zero divisor on a
+# low-volume, high-priced ticker), and psycopg raises "numeric field
+# overflow" for the whole batch insert, failing every indicator for that
+# symbol. Reject out-of-range/non-finite values per-row instead.
+_MAX_ABS_VALUE = 10**12 - 1
 
 
 @dataclass(frozen=True)
@@ -228,7 +236,17 @@ class IndicatorComputeJob:
         return rows
 
     @staticmethod
+    def _is_storable(value: float | None) -> bool:
+        """Reject values that would overflow indicator_values.value (Numeric(20, 8))."""
+        if value is None:
+            return True
+        if not math.isfinite(value):
+            return False
+        return abs(value) <= _MAX_ABS_VALUE
+
+    @classmethod
     def _point_to_rows(
+        cls,
         symbol_bars: SymbolBars,
         indicator: Indicator,
         point: IndicatorPoint,
@@ -245,14 +263,25 @@ class IndicatorComputeJob:
         }
 
         if point.values is not None:
-            return [
-                {
-                    **base_row,
-                    "indicator_code": f"{indicator.code}_{name}",
-                    "value": value,
-                }
-                for name, value in point.values.items()
-            ]
+            rows = []
+            for name, value in point.values.items():
+                code = f"{indicator.code}_{name}"
+                if not cls._is_storable(value):
+                    log.warning(
+                        "skipping %s for %s: value %r out of range", code, symbol_bars.ticker, value
+                    )
+                    continue
+                rows.append({**base_row, "indicator_code": code, "value": value})
+            return rows
+
+        if not cls._is_storable(point.value):
+            log.warning(
+                "skipping %s for %s: value %r out of range",
+                indicator.code,
+                symbol_bars.ticker,
+                point.value,
+            )
+            return []
 
         return [
             {
