@@ -65,6 +65,7 @@ def _ensure_loaded() -> None:
     from quant_indicators.indicators import (  # noqa: F401
         averages,
         core,
+        intraday,
         levels,
         momentum,
         trend,

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
+from quant_indicators.bars.models import Bar
 from quant_indicators.compute.job import ComputeOptions, IndicatorComputeJob
 from quant_indicators.indicators.registry import all_indicators
 
@@ -40,9 +42,12 @@ def test_compute_fixture_stores_one_value_per_indicator_output():
 
     # Current-value model with flattened multi-output indicators: one row per
     # (symbol, indicator output component) that produced output.
+    payload = json.loads((FIXTURE_DIR / "AAPL.json").read_text())
+    bars = [Bar.from_payload(item) for item in payload["bars"]]
     expected_rows_per_symbol = sum(
-        len(ind.outputs) if ind.outputs else 1
+        (len(ind.outputs) if ind.outputs else 1)
         for ind in all_indicators()
+        if ind.compute(bars)
     )
     assert summary.symbols_requested >= 1
     assert summary.values_upserted == expected_rows_per_symbol * summary.symbols_requested

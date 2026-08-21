@@ -8,6 +8,7 @@ import pytest
 
 from quant_indicators.bars.models import Bar
 from quant_indicators.indicators import core, levels, trend
+from quant_indicators.indicators import intraday
 from quant_indicators.indicators._math import ema, sma, wilder_rma
 
 
@@ -111,6 +112,32 @@ def test_atr_positive():
     assert all(p.value is not None and p.value >= 0 for p in points)
 
 
+def test_intraday_open_range_percentiles_are_decimal_excursions():
+    bars = _bars(
+        [100.0, 100.0, 100.0, 100.0, 100.0],
+        highs=[110.0, 105.0, 103.0, 108.0, 102.0],
+        lows=[90.0, 95.0, 97.0, 92.0, 98.0],
+    )
+    points = intraday.IntradayOpenRangePercentiles5().compute(bars)
+    assert len(points) == 1
+    values = points[-1].values
+    assert values["high_p50"] == pytest.approx(0.05)
+    assert values["high_p95"] == pytest.approx(0.096)
+    assert values["low_p50"] == pytest.approx(0.05)
+    assert values["low_p95"] == pytest.approx(0.096)
+
+    # A 32% excursion is stored as 0.32, not as a percentage string.
+    two_day_bars = _bars(
+        [100.0, 100.0],
+        highs=[132.0, 100.0],
+        lows=[100.0, 100.0],
+    )
+    two_day_indicator = intraday.IntradayOpenRangePercentiles5()
+    two_day_indicator.window = 2
+    two_day_values = two_day_indicator.compute(two_day_bars)[-1].values
+    assert two_day_values["high_p50"] == pytest.approx(0.16)
+
+
 def test_adx_outputs_and_range():
     # Trending-up series should yield a positive ADX and DI+.
     closes = [float(i) for i in range(1, 80)]
@@ -148,7 +175,7 @@ def test_volume_shelf_value_area_within_range():
 
 # ── Coverage across the full registry ────────────────────────────────────────
 
-def _synthetic_ohlcv(n: int = 320) -> list[Bar]:
+def _synthetic_ohlcv(n: int = 400) -> list[Bar]:
     """A varied, non-degenerate OHLCV series long enough for every indicator."""
     from math import sin
 

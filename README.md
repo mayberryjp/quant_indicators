@@ -86,6 +86,18 @@ the compute job and CLI pick them up automatically — no pipeline changes. Run
 | `ulcer_14` | Ulcer Index |
 | `stddev_20` | Rolling standard deviation of close |
 
+**Intraday open-range percentiles** (`intraday.py`)
+
+| Code | Description |
+| ---- | ----------- |
+| `intraday_open_range_5` / `_20` / `_30` / `_45` | Trailing high/low excursion percentiles over the specified trading-day window |
+| `intraday_open_range_60` / `_90` / `_180` / `_365` | Trailing high/low excursion percentiles over the specified trading-day window |
+
+Each of these multi-output indicators provides `high_p95`, `high_p75`,
+`high_p50`, `high_p25`, and matching `low_*` outputs. Values are stored as
+decimal fractions rather than percentage strings: `0.32` represents a 32% move.
+High excursion is `(high - open) / open`; low excursion is `(open - low) / open`.
+
 **Volume** (`core.py`, `volume.py`)
 
 | Code | Description |
