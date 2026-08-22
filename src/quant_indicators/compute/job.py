@@ -4,6 +4,10 @@ Reads daily bars from Postgres, runs the enabled set of registered indicators
 per symbol, and upserts results into indicators.indicator_values with
 idempotent ON CONFLICT semantics and per-run tracking.
 
+Values are stored as a daily history keyed by bar_date: every day an indicator
+can compute is stored, and rows older than RETENTION_DAYS calendar days are
+pruned after each run so at most a rolling year of history is retained.
+
 Single-output indicators store one row under their base code (for example,
 "sma_50"). Multi-output indicators store one row per output component under
 suffixed codes (for example, "bbands_20_2_upper").
@@ -37,21 +41,28 @@ log = logging.getLogger(__name__)
 # symbol. Reject out-of-range/non-finite values per-row instead.
 _MAX_ABS_VALUE = 10**12 - 1
 
+# Rolling retention window for stored values. Points older than this many
+# calendar days are neither written nor kept, so the table never holds more
+# than a year of daily history.
+RETENTION_DAYS = 365
+
 
 @dataclass(frozen=True)
 class ComputeOptions:
     """Parameters for an indicator computation run.
 
-    The job stores only the current value of each indicator per symbol, so
-    there is no date window: it loads the most recent `lookback_days` of bars
-    (enough to warm up the longest indicator) and keeps the latest point.
+    The job stores a daily history per symbol. `lookback_days` is the span of
+    bars loaded per symbol: it must cover the retention window (RETENTION_DAYS)
+    plus enough leading warm-up bars for the longest indicator. Only points
+    inside the retention window are stored; the extra leading bars serve solely
+    as warm-up.
     """
 
     tickers: list[str] | None = None
     adjustment_type: str = "unadjusted"
     indicator_codes: list[str] | None = None  # None => all registered
     mode: str = "current"
-    lookback_days: int = 400
+    lookback_days: int = 730
     fixture_path: str | None = None
     dry_run: bool = False
 
@@ -64,10 +75,9 @@ UPSERT_INDICATOR_VALUE = text("""
         :symbol_id, :ticker, :bar_date, :indicator_code, :indicator_version,
         :adjustment_type, :value, :indicator_run_id, now()
     )
-    ON CONFLICT (symbol_id, indicator_code, indicator_version, adjustment_type)
+    ON CONFLICT (symbol_id, bar_date, indicator_code, indicator_version, adjustment_type)
     DO UPDATE SET
         ticker = EXCLUDED.ticker,
-        bar_date = EXCLUDED.bar_date,
         value = EXCLUDED.value,
         indicator_run_id = EXCLUDED.indicator_run_id,
         updated_at = now()
@@ -166,10 +176,11 @@ class IndicatorComputeJob:
         run_id = self._create_run(options, len(targets))
         summary.run_id = run_id
 
-        # Only the current value is stored, so load a recent tail large enough
-        # to warm up the longest indicator; the latest bar in that tail is the
-        # bar each current value is computed from.
+        # Load a bar tail spanning the retention window plus warm-up for the
+        # longest indicator. Every computable day inside the retention window is
+        # stored; the extra leading bars only serve as warm-up.
         load_start = date.today() - timedelta(days=options.lookback_days)
+        retention_cutoff = date.today() - timedelta(days=RETENTION_DAYS)
 
         for symbol_id, ticker in targets:
             try:
@@ -181,21 +192,26 @@ class IndicatorComputeJob:
                     start_date=load_start,
                     end_date=None,
                 )
-                upserted = self._compute_and_store(symbol_bars, indicators, options, run_id)
+                upserted = self._compute_and_store(
+                    symbol_bars, indicators, options, run_id, retention_cutoff
+                )
                 summary.values_upserted += upserted
                 if upserted > 0:
                     summary.symbols_succeeded += 1
                 else:
-                    # No recent bar to compute a current value from (delisted /
-                    # illiquid / not yet ingested) — expected, not an error.
+                    # No bars within the retention window to compute from
+                    # (delisted / illiquid / not yet ingested) — expected.
                     summary.symbols_skipped += 1
-                    log.debug("skipped %s: no recent bars to compute current values", ticker)
+                    log.debug("skipped %s: no bars within retention window", ticker)
             except Exception as exc:  # noqa: BLE001 - isolate per-symbol failures
                 summary.symbols_failed += 1
                 summary.errors += 1
                 summary.failures.append(f"{ticker}: {exc}")
                 log.error("failed to compute indicators for %s: %s", ticker, exc, exc_info=True)
             self._heartbeat(run_id)
+
+        # Enforce the retention cap across the whole table once per run.
+        self._prune_old_values(retention_cutoff)
 
         summary.status = "failed" if summary.errors > 0 and summary.symbols_succeeded == 0 else "ok"
         summary.duration_seconds = time.monotonic() - started
@@ -208,8 +224,9 @@ class IndicatorComputeJob:
         indicators: Sequence[Indicator],
         options: ComputeOptions,
         run_id: int | None,
+        retention_cutoff: date | None = None,
     ) -> int:
-        rows = self._compute_rows(symbol_bars, indicators, options, run_id)
+        rows = self._compute_rows(symbol_bars, indicators, options, run_id, retention_cutoff)
         if not rows or self._engine is None:
             return len(rows)
         with self._engine.begin() as conn:
@@ -217,12 +234,27 @@ class IndicatorComputeJob:
         log.info("upserted %d indicator values for %s", len(rows), symbol_bars.ticker)
         return len(rows)
 
+    def _prune_old_values(self, cutoff: date) -> int:
+        """Delete stored values with a bar_date older than the retention window."""
+        if self._engine is None:
+            return 0
+        with self._engine.begin() as conn:
+            result = conn.execute(
+                text("DELETE FROM indicators.indicator_values WHERE bar_date < :cutoff"),
+                {"cutoff": cutoff},
+            )
+        deleted = result.rowcount or 0
+        if deleted:
+            log.info("pruned %d indicator values older than %s", deleted, cutoff.isoformat())
+        return deleted
+
     def _compute_rows(
         self,
         symbol_bars: SymbolBars,
         indicators: Sequence[Indicator],
         options: ComputeOptions,
         run_id: int | None,
+        retention_cutoff: date | None = None,
     ) -> list[dict[str, Any]]:
         bars = symbol_bars.bars
         rows: list[dict[str, Any]] = []
@@ -230,9 +262,12 @@ class IndicatorComputeJob:
             points = indicator.compute(bars)
             if not points:
                 continue
-            # Current-value model: keep only the most recent point.
-            point = points[-1]
-            rows.extend(self._point_to_rows(symbol_bars, indicator, point, options, run_id))
+            # Daily-history model: store every computed point, dropping any
+            # older than the retention window so pruned rows are never written.
+            for point in points:
+                if retention_cutoff is not None and point.bar_date < retention_cutoff:
+                    continue
+                rows.extend(self._point_to_rows(symbol_bars, indicator, point, options, run_id))
         return rows
 
     @staticmethod

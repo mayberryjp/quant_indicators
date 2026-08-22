@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 from quant_indicators.bars.models import Bar
@@ -36,21 +37,32 @@ def test_compute_fixture_respects_indicator_selection():
     assert summary.values_upserted > 0
 
 
-def test_compute_fixture_stores_one_value_per_indicator_output():
+def test_compute_fixture_stores_daily_history_per_output():
     job = IndicatorComputeJob(engine=None)
     summary = job.run(ComputeOptions(fixture_path=str(FIXTURE_DIR), dry_run=True))
 
-    # Current-value model with flattened multi-output indicators: one row per
-    # (symbol, indicator output component) that produced output.
+    # Daily-history model with flattened multi-output indicators: one row per
+    # (indicator output component, bar_date) that produced a storable value.
     payload = json.loads((FIXTURE_DIR / "AAPL.json").read_text())
     bars = [Bar.from_payload(item) for item in payload["bars"]]
-    expected_rows_per_symbol = sum(
-        (len(ind.outputs) if ind.outputs else 1)
-        for ind in all_indicators()
-        if ind.compute(bars)
-    )
+
+    max_abs = 10**12 - 1
+
+    def storable(value: float | None) -> bool:
+        return value is None or (math.isfinite(value) and abs(value) <= max_abs)
+
+    expected_rows_per_symbol = 0
+    for indicator in all_indicators():
+        for point in indicator.compute(bars):
+            if point.values is not None:
+                expected_rows_per_symbol += sum(1 for v in point.values.values() if storable(v))
+            elif storable(point.value):
+                expected_rows_per_symbol += 1
+
     assert summary.symbols_requested >= 1
     assert summary.values_upserted == expected_rows_per_symbol * summary.symbols_requested
+    # A daily history stores many rows per indicator, not a single current value.
+    assert summary.values_upserted > len(all_indicators())
 
 
 def test_summary_format_line():

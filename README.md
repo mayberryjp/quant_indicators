@@ -30,10 +30,10 @@ with the `market_data` schema owned by `quant_daily_bars`.
 
 - `indicator_definitions` — registry metadata (code, version, outputs, params).
 - `indicator_runs` — one row per compute run, with heartbeat and counts.
-- `indicator_values` — the **current** value of each indicator, unique per
-  `(symbol_id, indicator_code, indicator_version, adjustment_type)`. `bar_date`
-  is kept as an as-of column (the bar the value was computed from), not part of
-  the key — each run overwrites the row, so no history accumulates.
+- `indicator_values` — a **daily history** of each indicator, unique per
+  `(symbol_id, bar_date, indicator_code, indicator_version, adjustment_type)`.
+  Each run stores every day it can compute and prunes rows older than 365
+  calendar days, so at most a rolling year of history is retained.
 
 Single-output indicators (e.g. SMA) write one row under their base code
 (`sma_50`). Multi-output indicators (e.g. MACD) also write to `value`, but as

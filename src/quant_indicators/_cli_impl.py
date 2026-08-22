@@ -11,8 +11,9 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 
-EXPECTED_SCHEMA_VERSION = "0003_flatten_output_rows"
+EXPECTED_SCHEMA_VERSION = "0005_indicator_categories"
 EXPECTED_TABLES = (
+    "indicator_categories",
     "indicator_definitions",
     "indicator_runs",
     "indicator_values",
@@ -52,9 +53,9 @@ def _adjustment_type_default() -> str:
 
 def _lookback_default() -> int:
     try:
-        return int(os.environ.get("INDICATOR_LOOKBACK_DAYS", "400"))
+        return int(os.environ.get("INDICATOR_LOOKBACK_DAYS", "730"))
     except ValueError:
-        return 400
+        return 730
 
 
 def _timezone_default() -> str:
@@ -211,7 +212,7 @@ def indicators_compute(args: argparse.Namespace) -> None:
             )
 
             log.info(
-                "computing current indicator values  adjustment=%s  lookback=%dd",
+                "computing daily indicator values  adjustment=%s  lookback=%dd",
                 options.adjustment_type, options.lookback_days,
             )
 
@@ -299,12 +300,12 @@ def build_parser() -> argparse.ArgumentParser:
     sync_parser.set_defaults(func=indicators_sync_definitions)
 
     compute_parser = ind_subparsers.add_parser(
-        "compute", help="Compute and store the current value of each indicator per ticker."
+        "compute", help="Compute and store daily indicator values per ticker (rolling 365-day history)."
     )
     compute_parser.add_argument("--tickers", type=str, default=None, help="Comma-separated tickers (default: all with bars).")
     compute_parser.add_argument("--indicators", type=str, default=None, help="Comma-separated indicator codes (default: all registered).")
     compute_parser.add_argument("--adjustment-type", choices=("unadjusted", "split_adjusted"), default=_adjustment_type_default())
-    compute_parser.add_argument("--lookback-days", type=int, default=_lookback_default(), help="Recent history (calendar days) loaded per symbol to warm up indicators.")
+    compute_parser.add_argument("--lookback-days", type=int, default=_lookback_default(), help="Calendar days of bars loaded per symbol (retention window plus indicator warm-up).")
     compute_parser.add_argument("--fixture", help="Path to a bars fixture file or directory.")
     compute_parser.add_argument("--dry-run", action="store_true", help="Compute without database writes (fixture mode).")
     compute_parser.add_argument("--schedule", type=int, metavar="SECONDS", help="Run continuously, sleeping SECONDS between compute cycles.")

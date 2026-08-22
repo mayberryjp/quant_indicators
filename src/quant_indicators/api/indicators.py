@@ -99,7 +99,7 @@ def list_indicator_values(engine: Engine, query: ValuesQuery) -> list[dict[str, 
                        adjustment_type, value
                 FROM indicators.indicator_values
                 {where}
-                ORDER BY ticker, indicator_code
+                ORDER BY ticker, indicator_code, bar_date DESC
                 LIMIT :limit OFFSET :offset
             """),
             params,
@@ -119,11 +119,12 @@ def latest_values_for_ticker(
     with engine.connect() as conn:
         rows = conn.execute(
             text(f"""
-                SELECT symbol_id, ticker, bar_date, indicator_code, indicator_version,
+                SELECT DISTINCT ON (indicator_code, indicator_version, adjustment_type)
+                       symbol_id, ticker, bar_date, indicator_code, indicator_version,
                        adjustment_type, value
                 FROM indicators.indicator_values
                 WHERE ticker = :ticker {adj_clause}
-                ORDER BY indicator_code, indicator_version, adjustment_type
+                ORDER BY indicator_code, indicator_version, adjustment_type, bar_date DESC
             """),
             params,
         ).mappings().all()
