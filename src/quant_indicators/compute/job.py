@@ -4,9 +4,11 @@ Reads daily bars from Postgres, runs the enabled set of registered indicators
 per symbol, and upserts results into indicators.indicator_values with
 idempotent ON CONFLICT semantics and per-run tracking.
 
-Values are stored as a daily history keyed by bar_date: every day an indicator
-can compute is stored, and rows older than RETENTION_DAYS calendar days are
-pruned after each run so at most a rolling year of history is retained.
+Values are stored append-only: each run writes just the most recent computed
+point per indicator (keyed by bar_date), so the series grows one day at a time
+without back-filling. A manual backfill (ComputeOptions.backfill) instead writes
+the full rolling window at once. Rows older than RETENTION_DAYS calendar days are
+pruned after each run, so at most a rolling year of history accumulates.
 
 Single-output indicators store one row under their base code (for example,
 "sma_50"). Multi-output indicators store one row per output component under
@@ -41,9 +43,9 @@ log = logging.getLogger(__name__)
 # symbol. Reject out-of-range/non-finite values per-row instead.
 _MAX_ABS_VALUE = 10**12 - 1
 
-# Rolling retention window for stored values. Points older than this many
-# calendar days are neither written nor kept, so the table never holds more
-# than a year of daily history.
+# Rolling retention window for stored values. As the append-only history
+# accumulates, rows older than this many calendar days are pruned after each
+# run, so the table never holds more than a year of daily history.
 RETENTION_DAYS = 365
 
 
@@ -51,11 +53,15 @@ RETENTION_DAYS = 365
 class ComputeOptions:
     """Parameters for an indicator computation run.
 
-    The job stores a daily history per symbol. `lookback_days` is the span of
-    bars loaded per symbol: it must cover the retention window (RETENTION_DAYS)
-    plus enough leading warm-up bars for the longest indicator. Only points
-    inside the retention window are stored; the extra leading bars serve solely
-    as warm-up.
+    By default the job is append-only: each run stores just the latest computed
+    point per symbol, so the daily history grows one day at a time.
+
+    Set `backfill=True` for a manual one-off that instead stores the full
+    rolling window (up to RETENTION_DAYS) for every series — use it to
+    (re)populate history on demand. `lookback_days` is the span of bars loaded
+    per symbol: append-only needs only enough leading warm-up for the longest
+    indicator, while a backfill needs the retention window plus that warm-up
+    (the default 730 covers both).
     """
 
     tickers: list[str] | None = None
@@ -65,6 +71,7 @@ class ComputeOptions:
     lookback_days: int = 730
     fixture_path: str | None = None
     dry_run: bool = False
+    backfill: bool = False
 
 
 UPSERT_INDICATOR_VALUE = text("""
@@ -176,9 +183,9 @@ class IndicatorComputeJob:
         run_id = self._create_run(options, len(targets))
         summary.run_id = run_id
 
-        # Load a bar tail spanning the retention window plus warm-up for the
-        # longest indicator. Every computable day inside the retention window is
-        # stored; the extra leading bars only serve as warm-up.
+        # Load a bar tail long enough to warm up the longest indicator so the
+        # latest point is correct. Only that most recent point is stored; the
+        # leading bars serve solely as warm-up.
         load_start = date.today() - timedelta(days=options.lookback_days)
         retention_cutoff = date.today() - timedelta(days=RETENTION_DAYS)
 
@@ -199,10 +206,10 @@ class IndicatorComputeJob:
                 if upserted > 0:
                     summary.symbols_succeeded += 1
                 else:
-                    # No bars within the retention window to compute from
-                    # (delisted / illiquid / not yet ingested) — expected.
+                    # No computable bars for this symbol (delisted / illiquid /
+                    # not yet ingested) — expected.
                     summary.symbols_skipped += 1
-                    log.debug("skipped %s: no bars within retention window", ticker)
+                    log.debug("skipped %s: no computable bars", ticker)
             except Exception as exc:  # noqa: BLE001 - isolate per-symbol failures
                 summary.symbols_failed += 1
                 summary.errors += 1
@@ -262,11 +269,20 @@ class IndicatorComputeJob:
             points = indicator.compute(bars)
             if not points:
                 continue
-            # Daily-history model: store every computed point, dropping any
-            # older than the retention window so pruned rows are never written.
-            for point in points:
-                if retention_cutoff is not None and point.bar_date < retention_cutoff:
-                    continue
+            if options.backfill:
+                # Manual backfill: store the full computed series, skipping any
+                # point older than the retention window so we never write rows
+                # the prune would immediately delete.
+                selected = [
+                    p for p in points
+                    if retention_cutoff is None or p.bar_date >= retention_cutoff
+                ]
+            else:
+                # Append-only: store just the most recent point. bar_date is part
+                # of the unique key, so each run appends that day and the series
+                # grows one day at a time.
+                selected = points[-1:]
+            for point in selected:
                 rows.extend(self._point_to_rows(symbol_bars, indicator, point, options, run_id))
         return rows
 

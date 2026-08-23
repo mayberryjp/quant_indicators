@@ -182,6 +182,10 @@ def indicators_compute(args: argparse.Namespace) -> None:
     if daily_at and interval is not None:
         raise SystemExit("--daily-at and --schedule are mutually exclusive")
 
+    backfill = getattr(args, "backfill", False)
+    if backfill and (interval is not None or daily_at):
+        raise SystemExit("--backfill is a manual one-off; it cannot be combined with --schedule/--daily-at")
+
     run_once = interval is None and not daily_at
     codes = _selected_codes(args)
     log = logging.getLogger(__name__)
@@ -209,11 +213,13 @@ def indicators_compute(args: argparse.Namespace) -> None:
                 lookback_days=args.lookback_days,
                 fixture_path=args.fixture,
                 dry_run=args.dry_run,
+                backfill=backfill,
+                mode="backfill" if backfill else "current",
             )
 
             log.info(
-                "computing daily indicator values  adjustment=%s  lookback=%dd",
-                options.adjustment_type, options.lookback_days,
+                "computing indicator values  mode=%s  adjustment=%s  lookback=%dd",
+                options.mode, options.adjustment_type, options.lookback_days,
             )
 
             job = IndicatorComputeJob(engine=engine)
@@ -300,14 +306,15 @@ def build_parser() -> argparse.ArgumentParser:
     sync_parser.set_defaults(func=indicators_sync_definitions)
 
     compute_parser = ind_subparsers.add_parser(
-        "compute", help="Compute and store daily indicator values per ticker (rolling 365-day history)."
+        "compute", help="Compute and store daily indicator values per ticker (append-only, rolling 365-day history)."
     )
     compute_parser.add_argument("--tickers", type=str, default=None, help="Comma-separated tickers (default: all with bars).")
     compute_parser.add_argument("--indicators", type=str, default=None, help="Comma-separated indicator codes (default: all registered).")
     compute_parser.add_argument("--adjustment-type", choices=("unadjusted", "split_adjusted"), default=_adjustment_type_default())
-    compute_parser.add_argument("--lookback-days", type=int, default=_lookback_default(), help="Calendar days of bars loaded per symbol (retention window plus indicator warm-up).")
+    compute_parser.add_argument("--lookback-days", type=int, default=_lookback_default(), help="Calendar days of bars loaded per symbol for indicator warm-up.")
     compute_parser.add_argument("--fixture", help="Path to a bars fixture file or directory.")
     compute_parser.add_argument("--dry-run", action="store_true", help="Compute without database writes (fixture mode).")
+    compute_parser.add_argument("--backfill", action="store_true", help="Manual one-off: store the full rolling 365-day history per series instead of just the latest day. Cannot be combined with --schedule/--daily-at.")
     compute_parser.add_argument("--schedule", type=int, metavar="SECONDS", help="Run continuously, sleeping SECONDS between compute cycles.")
     compute_parser.add_argument("--daily-at", type=str, default=None, metavar="HH:MM", help="Run once per day at this wall-clock time.")
     compute_parser.add_argument("--timezone", type=str, default=_timezone_default(), metavar="TZ", help="IANA timezone for --daily-at (default: COMPUTE_SCHEDULE_TIMEZONE or UTC).")

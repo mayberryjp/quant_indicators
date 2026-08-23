@@ -32,8 +32,9 @@ with the `market_data` schema owned by `quant_daily_bars`.
 - `indicator_runs` — one row per compute run, with heartbeat and counts.
 - `indicator_values` — a **daily history** of each indicator, unique per
   `(symbol_id, bar_date, indicator_code, indicator_version, adjustment_type)`.
-  Each run stores every day it can compute and prunes rows older than 365
-  calendar days, so at most a rolling year of history is retained.
+  Each run appends only the latest day it can compute (append-only, no
+  back-fill) and prunes rows older than 365 calendar days, so the history
+  grows one day at a time up to a rolling year.
 
 Single-output indicators (e.g. SMA) write one row under their base code
 (`sma_50`). Multi-output indicators (e.g. MACD) also write to `value`, but as
@@ -171,14 +172,23 @@ python -m quant_indicators.cli indicators compute --schedule 86400
 # Compute from a bars fixture without touching the database
 python -m quant_indicators.cli indicators compute --fixture tests/fixtures/bars --dry-run
 
+# Manual one-off: backfill the full rolling 365-day history for every series
+python -m quant_indicators.cli indicators compute --backfill
+
 python -m quant_indicators.cli indicators run-summary --latest
 ```
 
-Each run computes and overwrites the current value of every indicator per
-ticker; there is no date window. `--lookback-days` (default `400`) sets how much
-recent history is loaded per symbol so long-window indicators such as `sma_200`
-and `support_resistance_252` warm up correctly. A late-arriving bar is picked up
+Each scheduled run is **append-only**: it computes the latest bar per ticker and
+stores just that day, so the daily history grows one day at a time and is pruned
+to a rolling 365 days. `--lookback-days` (default `730`) sets how much recent
+history is loaded per symbol so long-window indicators such as `sma_200` and
+`support_resistance_252` warm up correctly. A late-arriving bar is picked up
 automatically on the next run.
+
+Pass `--backfill` for a manual one-off that (re)populates the full 365-day
+history for every series in a single run instead of just the latest day. It is
+intentionally blocked from `--schedule`/`--daily-at`, so it only runs when you
+invoke it by hand.
 
 ## Retrieval API
 
