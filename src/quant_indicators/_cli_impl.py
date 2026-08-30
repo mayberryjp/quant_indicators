@@ -87,6 +87,8 @@ def _seconds_until(hour: int, minute: int, tz: ZoneInfo) -> tuple[float, datetim
     target = datetime.combine(now.date(), dt_time(hour, minute), tzinfo=tz)
     if target <= now:
         target = datetime.combine(now.date() + timedelta(days=1), dt_time(hour, minute), tzinfo=tz)
+    while target.weekday() >= 5:  # skip Saturday (5) and Sunday (6)
+        target = datetime.combine(target.date() + timedelta(days=1), dt_time(hour, minute), tzinfo=tz)
     return max((target - now).total_seconds(), 0.0), target
 
 
