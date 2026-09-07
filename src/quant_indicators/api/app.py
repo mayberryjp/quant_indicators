@@ -15,11 +15,11 @@ from typing import Any, Callable
 
 import bottle
 from bottle import Bottle, HTTPResponse, request
-from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
 from quant_indicators.api import indicators as data
 from quant_indicators.api.readiness import check_database_readiness
+from quant_indicators.db import create_engine
 
 log = logging.getLogger(__name__)
 

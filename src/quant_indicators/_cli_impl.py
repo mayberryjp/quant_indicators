@@ -41,7 +41,7 @@ def _alembic_config() -> object:
 
 def _engine() -> object:
     try:
-        from sqlalchemy import create_engine
+        from quant_indicators.db import create_engine
     except ModuleNotFoundError as exc:
         raise SystemExit("SQLAlchemy is required for database commands") from exc
     return create_engine(_database_url(), pool_pre_ping=True)
@@ -105,7 +105,9 @@ def db_downgrade_base(_args: argparse.Namespace) -> None:
 
 
 def db_verify(_args: argparse.Namespace) -> None:
-    from sqlalchemy import create_engine, text
+    from sqlalchemy import text
+
+    from quant_indicators.db import create_engine
 
     engine = create_engine(_database_url(), pool_pre_ping=True)
     expected_table_names = tuple(sorted(EXPECTED_TABLES))

@@ -43,10 +43,13 @@ def run_migrations_online() -> None:
     configuration = config.get_section(config.config_ini_section, {})
     configuration["sqlalchemy.url"] = _database_url()
 
+    from quant_indicators.db import timezone_connect_args
+
     connectable = engine_from_config(
         configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=timezone_connect_args(),
     )
 
     with connectable.connect() as connection:
