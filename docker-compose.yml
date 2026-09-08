@@ -5,8 +5,7 @@ services:
     container_name: quant_indicators
     environment:
       DATABASE_URL: "${DATABASE_URL:-postgresql+psycopg://quant:quant_dev_password@localhost:5432/quant}"
-      BARS_SCHEMA: ${BARS_SCHEMA:-market_data}
-      BARS_TABLE: ${BARS_TABLE:-daily_bars}
+      BARS_API_URL: ${BARS_API_URL:-http://localhost:8000}
       INDICATOR_ADJUSTMENT_TYPE: ${INDICATOR_ADJUSTMENT_TYPE:-unadjusted}
       INDICATOR_LOOKBACK_DAYS: ${INDICATOR_LOOKBACK_DAYS:-550}
       COMPUTE_SCHEDULE_TIME: ${COMPUTE_SCHEDULE_TIME:-01:00}

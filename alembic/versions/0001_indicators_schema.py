@@ -10,9 +10,9 @@ Creates the indicators schema with tables for:
 - indicator_values: computed indicator outputs keyed by
   (symbol_id, bar_date, indicator_code, indicator_version, adjustment_type)
 
-Indicator input bars are read from the market_data.daily_bars table owned
-by the quant_daily_bars service. That table is a logical dependency and is
-not created or dropped here.
+Indicator input bars are read from the quant_daily_bars service over its
+HTTP API. That service owns the bar storage; this migration neither creates
+nor references it.
 """
 from typing import Sequence, Union
 

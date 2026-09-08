@@ -2,16 +2,16 @@
 
 Daily technical-indicator pipeline for Alpaca bars. It reads OHLCV daily bars
 produced by [`quant_daily_bars`](https://github.com/mayberryjp/quant_daily_bars)
-from Postgres, computes a pluggable set of technical indicators for every
-ticker, stores them idempotently, and exposes a read-only HTTP API to retrieve
-them.
+over that service's HTTP API, computes a pluggable set of technical indicators
+for every ticker, stores them idempotently, and exposes a read-only HTTP API to
+retrieve them.
 
 ## Architecture
 
 ```
-market_data.daily_bars ──▶ compute job ──▶ indicators.indicator_values ──▶ retrieval API
-   (owned by                (registry of                (this service's           (Bottle + waitress)
-    quant_daily_bars)        indicators)                 own schema)
+quant_daily_bars API ──▶ compute job ──▶ indicators.indicator_values ──▶ retrieval API
+   (bars read over          (registry of                (this service's           (Bottle + waitress)
+    HTTP, BARS_API_URL)      indicators)                 own schema)
 ```
 
 The service runs in a single container orchestrated by `supervisord`:
@@ -211,7 +211,7 @@ See `.env.example`. Key variables:
 | Variable                    | Default                          | Purpose                             |
 | --------------------------- | -------------------------------- | ----------------------------------- |
 | `DATABASE_URL`              | `postgresql+psycopg://quant:...` | Postgres connection.                |
-| `BARS_SCHEMA` / `BARS_TABLE`| `market_data` / `daily_bars`     | Where input bars are read from.     |
+| `BARS_API_URL`              | `http://localhost:8000`          | Base URL of the quant_daily_bars read API. |
 | `INDICATOR_ADJUSTMENT_TYPE` | `unadjusted`                     | Default price series.               |
 | `INDICATOR_LOOKBACK_DAYS`   | `400`                            | Recent history loaded per symbol for warm-up. |
 | `COMPUTE_SCHEDULE_TIME`     | `01:00`                          | Wall-clock `HH:MM` for the daily compute run. |

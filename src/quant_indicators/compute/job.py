@@ -170,7 +170,6 @@ class IndicatorComputeJob:
             summary.warnings.append(f"definition sync failed: {exc}")
 
         targets = list_symbols_with_bars(
-            self._engine,
             adjustment_type=options.adjustment_type,
             tickers=options.tickers,
         )
@@ -192,7 +191,6 @@ class IndicatorComputeJob:
         for symbol_id, ticker in targets:
             try:
                 symbol_bars = load_symbol_bars(
-                    self._engine,
                     symbol_id=symbol_id,
                     ticker=ticker,
                     adjustment_type=options.adjustment_type,
