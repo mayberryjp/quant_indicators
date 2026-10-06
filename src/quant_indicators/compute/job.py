@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Sequence
 
+import requests
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
@@ -159,6 +160,16 @@ class IndicatorComputeJob:
         if self._engine is None:
             raise RuntimeError("Database engine is required for computation")
 
+        with requests.Session() as bars_session:
+            return self._run_from_bars_api(options, summary, started, bars_session)
+
+    def _run_from_bars_api(
+        self,
+        options: ComputeOptions,
+        summary: ComputeSummary,
+        started: float,
+        bars_session: requests.Session,
+    ) -> ComputeSummary:
         indicators = self._resolve_indicators(options)
         summary.indicators_run = len(indicators)
 
@@ -172,6 +183,7 @@ class IndicatorComputeJob:
         targets = list_symbols_with_bars(
             adjustment_type=options.adjustment_type,
             tickers=options.tickers,
+            session=bars_session,
         )
         summary.symbols_requested = len(targets)
         if not targets:
@@ -196,6 +208,7 @@ class IndicatorComputeJob:
                     adjustment_type=options.adjustment_type,
                     start_date=load_start,
                     end_date=None,
+                    session=bars_session,
                 )
                 upserted = self._compute_and_store(
                     symbol_bars, indicators, options, run_id, retention_cutoff

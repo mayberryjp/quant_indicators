@@ -93,6 +93,48 @@ def test_compute_fixture_backfill_stores_full_series():
     assert backfilled.values_upserted > appended.values_upserted
 
 
+def test_compute_reuses_and_closes_bars_session(monkeypatch):
+    from quant_indicators.bars.models import SymbolBars
+    from quant_indicators.compute import job as job_module
+
+    class FakeSession:
+        closed = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            self.closed = True
+
+    session = FakeSession()
+    seen_sessions = []
+    job = IndicatorComputeJob(engine=object(), indicators=[])
+    monkeypatch.setattr(job_module.requests, "Session", lambda: session)
+    monkeypatch.setattr(job, "sync_definitions", lambda _indicators: 0)
+    monkeypatch.setattr(job, "_create_run", lambda _options, _count: 1)
+    monkeypatch.setattr(job, "_heartbeat", lambda _run_id: None)
+    monkeypatch.setattr(job, "_prune_old_values", lambda _cutoff: 0)
+    monkeypatch.setattr(job, "_finalize_run", lambda _run_id, _summary: None)
+
+    def list_symbols(**kwargs):
+        seen_sessions.append(kwargs["session"])
+        return [(1, "ONE"), (2, "TWO")]
+
+    def load_symbol(**kwargs):
+        seen_sessions.append(kwargs["session"])
+        return SymbolBars(symbol_id=kwargs["symbol_id"], ticker=kwargs["ticker"], bars=[])
+
+    monkeypatch.setattr(job_module, "list_symbols_with_bars", list_symbols)
+    monkeypatch.setattr(job_module, "load_symbol_bars", load_symbol)
+
+    summary = job.run(ComputeOptions())
+
+    assert len(seen_sessions) == 3
+    assert all(seen_session is session for seen_session in seen_sessions)
+    assert session.closed
+    assert summary.symbols_skipped == 2
+
+
 def test_summary_format_line():
     job = IndicatorComputeJob(engine=None)
     summary = job.run(ComputeOptions(fixture_path=str(FIXTURE_DIR), dry_run=True))
