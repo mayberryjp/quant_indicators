@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 from pathlib import Path
+from unittest.mock import MagicMock
 
-from quant_indicators.bars.models import Bar
+import pytest
+
+from quant_indicators.bars.models import Bar, SymbolBars
 from quant_indicators.compute.job import ComputeOptions, IndicatorComputeJob
 from quant_indicators.indicators.registry import all_indicators
 
@@ -35,6 +39,37 @@ def test_compute_fixture_respects_indicator_selection():
     summary = job.run(options)
     assert summary.indicators_run == 1
     assert summary.values_upserted > 0
+
+
+@pytest.mark.parametrize("level", [logging.INFO, logging.DEBUG])
+def test_compute_upsert_success_is_debug_only(caplog, level):
+    payload = json.loads((FIXTURE_DIR / "AAPL.json").read_text())
+    symbol_bars = SymbolBars(
+        symbol_id=1,
+        ticker="AAPL",
+        bars=[Bar.from_payload(item) for item in payload["bars"]],
+    )
+    engine = MagicMock()
+    job = IndicatorComputeJob(engine=engine)
+    indicators = [indicator for indicator in all_indicators() if indicator.code == "sma_50"]
+
+    with caplog.at_level(level, logger="quant_indicators.compute.job"):
+        upserted = job._compute_and_store(symbol_bars, indicators, ComputeOptions(), run_id=1)
+
+    assert upserted == 1
+    execute = engine.begin.return_value.__enter__.return_value.execute
+    execute.assert_called_once()
+    assert len(execute.call_args.args[1]) == upserted
+    records = [
+        record for record in caplog.records
+        if record.name == "quant_indicators.compute.job"
+    ]
+    if level == logging.DEBUG:
+        assert len(records) == 1
+        assert records[0].levelno == logging.DEBUG
+        assert records[0].getMessage() == "upserted 1 indicator values for AAPL"
+    else:
+        assert records == []
 
 
 def test_compute_fixture_stores_latest_point_per_output():

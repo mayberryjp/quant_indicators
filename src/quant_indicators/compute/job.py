@@ -249,7 +249,7 @@ class IndicatorComputeJob:
             return len(rows)
         with self._engine.begin() as conn:
             conn.execute(UPSERT_INDICATOR_VALUE, rows)
-        log.info("upserted %d indicator values for %s", len(rows), symbol_bars.ticker)
+        log.debug("upserted %d indicator values for %s", len(rows), symbol_bars.ticker)
         return len(rows)
 
     def _prune_old_values(self, cutoff: date) -> int:

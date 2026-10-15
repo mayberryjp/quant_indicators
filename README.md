@@ -178,6 +178,10 @@ python -m quant_indicators.cli indicators compute --backfill
 python -m quant_indicators.cli indicators run-summary --latest
 ```
 
+Routine per-symbol upsert messages are logged at DEBUG, not INFO. Normal CLI
+output retains the run summary, warnings, and errors without a success line
+for every ticker.
+
 Each scheduled run is **append-only**: it computes the latest bar per ticker and
 stores just that day, so the daily history grows one day at a time and is pruned
 to a rolling 365 days. `--lookback-days` (default `730`) sets how much recent
